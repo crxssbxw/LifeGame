@@ -3,6 +3,10 @@
 #include <utility>
 #include <random>
 #include <chrono>
+#include <thread>
+#include <conio.h>
+#include <fstream>
+
 enum class BoundaryMode {
 	Bounded, //Мертвые края
 	Toroidal //Тор / бублик / один край является продолжением противоположного
@@ -54,7 +58,60 @@ public:
 		}
 	}
 
+	//Сохраняет паттерн в файл
+	bool savePatternToFile(const std::string& name) {
+		std::string filename = name + ".lfgm";
+		std::ofstream stream(filename);
+		if (stream.is_open()) {
+			std::string line;
+			for (int y = 0; y < height; ++y) {
+				line = "";
+				for (int x = 0; x < width; ++x) {
+					if (isCellAlive(x, y))
+						line += "O";
+					else
+						line += ".";
+				}
+				stream << line << '\n';
+			}
+			return true;
+		}
+		return false;
+	}
+
 	//Инициализация паттернов
+
+	//Загружает паттерн из файла
+	bool loadPatternFromFile(const std::string& filename) {
+		std::string line;
+		std::ifstream stream(filename);
+
+		if (stream.is_open()) {
+			std::vector<std::string> pattern;
+			int pattern_width = 0, pattern_height = 0;
+			while (std::getline(stream, line)) {
+				if (line.empty() || line[0] == '#')
+					continue;
+				pattern_height++;
+				if (line.length() > pattern_width)
+					pattern_width = line.length();
+				pattern.push_back(line);
+			}
+
+			int start_x = ((width - pattern_width) / 2 >= 0) ? ((width - pattern_width) / 2) : 0;
+			int start_y = ((height - pattern_height) / 2 >= 0) ? ((height - pattern_height) / 2) : 0;
+
+			for (int y = 0; y < pattern.size() && y < height; ++y) {
+				for (int x = 0; x < pattern[y].length() && x < width; ++x) {
+					if (pattern[y][x] == 'O') {
+						setCell(start_x + x, start_y + y, 1);
+					}
+				}
+			}
+			return true;
+		}
+		return false;
+	}
 
 	//Стартовая "Мигалка"
 	void initializeBlinker() {
@@ -100,7 +157,7 @@ public:
 		std::fill(next_field.begin(), next_field.end(), 0);
 	}
 
-	private:
+private:
 
 	//Рассчитывает клетку на следующем поколении
 	uint8_t predictCell(int x, int y) const {
@@ -149,6 +206,7 @@ public:
 class Game {
 private:
 	Field field;
+	bool is_auto_mode = false; //Флаг, определяющий режим отрисовки
 
 	void clearScreen() const {
 		// \033[2J очищает экран, \033[H перемещает курсор в левый верхний угол
@@ -174,47 +232,110 @@ public:
 		}
 	}
 
+	//Основной цикл игры
 	void run() {
 		//Начальная настройка
-		field.initializeRandom(0.25f);
+		field.initializeClear();
 
 		while (true) {
-			clearScreen();
-			draw();
+			if (is_auto_mode) {
+				clearScreen();
+				draw();
+				std::cout << "Controls:\t[Esc/q] - exit, [Space/p] - pause, [r] - random, [c] - clear\n";
 
-			std::cout << "Controls:\t[Enter] - next step, [0] - exit, [r] - random seed, [g] - glider, [b] - blinker, [c] - clear\n";
-			std::cout << "Reset:\t\t[1] - Bounded mode, [2] - Toroidal mode\n> ";
-			std::string input;
-			std::getline(std::cin, input);
+				field.nextGeneration();
 
-			if (input == "0") {
-				break;
-			}
-			else if (input == "r") {
-				field.initializeRandom(0.25f);
-				continue;
-			}
-			else if (input == "g") {
-				field.initializeGlider();
-				continue;
-			}
-			else if (input == "b") {
-				field.initializeBlinker();
-				continue;
-			}
-			else if (input == "c") {
-				field.initializeClear();
-				continue;
-			}
-			else if (input == "1") {
-				field = Field(field.getWidth(), field.getHeight(), BoundaryMode::Bounded);
-				continue;
-			}
-			else if (input == "2") {
-				field = Field(field.getWidth(), field.getHeight(), BoundaryMode::Toroidal);
-			}
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-			field.nextGeneration();
+				if (_kbhit()) {
+					char key = _getch();
+					if (key == 'p' || key == ' ') {
+						is_auto_mode = false;
+					}
+					else if (key == 'q' || key == 27) //key == 27 - ESC
+						return;
+					else if (key == 'r') 
+						field.initializeRandom(0.25f); 
+					else if (key == 'c') 
+						field.initializeClear();
+				}
+			}
+			else {
+				clearScreen();
+				draw();
+
+				std::cout << "Controls:\t[Enter] - next step, [q] - exit, [a] - auto mode\n";
+				std::cout << "Patterns:\t[r] - random seed, [g] - glider, [b] - blinker, [c] - clear, [l] - load user .lfgm, [s] - save to .lfgm\n";
+				std::cout << "Reset:\t\t[1] - Bounded mode, [2] - Toroidal mode\n> ";
+				std::string input;
+				std::getline(std::cin, input);
+
+				if (input == "q") {
+					break;
+				}
+				else if (input == "a") {
+					is_auto_mode = true;
+					continue;
+				}
+				else if (input == "r") {
+					field.initializeRandom(0.25f);
+					continue;
+				}
+				else if (input == "g") {
+					field.initializeGlider();
+					continue;
+				}
+				else if (input == "b") {
+					field.initializeBlinker();
+					continue;
+				}
+				else if (input == "c") {
+					field.initializeClear();
+					continue;
+				}
+				else if (input == "l") {
+					std::cout << "Input file name (example: glider.lfgm)\n> ";
+					std::string filename;
+					std::getline(std::cin, filename);
+
+					if (field.loadPatternFromFile(filename)){
+						std::cout << "Pattern loaded successfully!\n";
+					}
+					else{
+						std::cout << "Error: file doesn't exist or corrupted!\n";
+					}
+					std::cout << "Press any key to continue...\n";
+					_getch();
+					continue;
+				}
+				else if (input == "s") {
+					std::cout << "Input pattern name\n> ";
+					std::string name;
+					std::getline(std::cin, name);
+
+					if (field.savePatternToFile(name)) {
+						std::cout << "Pattern saved successfully!\n";
+					}
+					else {
+						std::cout << "Error while saving the pattern!\n";
+					}
+					std::cout << "Press any key to continue...\n";
+					_getch();
+					continue;
+				}
+				else if (input == "1") {
+					field = Field(field.getWidth(), field.getHeight(), BoundaryMode::Bounded);
+					field.initializeRandom(0.25f);
+					continue;
+				}
+				else if (input == "2") {
+					field = Field(field.getWidth(), field.getHeight(), BoundaryMode::Toroidal);
+					field.initializeRandom(0.25f);
+					continue;
+				}
+
+				field.nextGeneration();
+			}
 		}
 	}
 };
